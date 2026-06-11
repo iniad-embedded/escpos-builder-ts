@@ -1,9 +1,10 @@
-import iconv from 'iconv-lite';
 import { ESC, GS, HT, INIT, KANJI_OFF, KANJI_ON, LF } from './commands.js';
 import { resolveEncoding, type EncodingName } from './encodings.js';
 import { toRaster } from './image.js';
+import { charWidth, stringWidth } from './width.js';
 import type {
   Alignment,
+  TableColumn,
   BarcodeOptions,
   BarcodeType,
   BuilderOptions,
@@ -38,6 +39,18 @@ function assertRange(value: number, min: number, max: number, what: string): voi
   }
 }
 
+function encodeAscii(value: string, what: string): Uint8Array {
+  const bytes = new Uint8Array(value.length);
+  for (let i = 0; i < value.length; i++) {
+    const code = value.charCodeAt(i);
+    if (code > 0x7f) {
+      throw new RangeError(`${what} must contain only ASCII characters`);
+    }
+    bytes[i] = code;
+  }
+  return bytes;
+}
+
 /**
  * Fluent builder producing a Uint8Array of ESC/POS commands.
  */
@@ -48,9 +61,13 @@ export class EscPosBuilder {
   /** Encoding whose switch commands have been emitted, if any. */
   private appliedEncoding: EncodingName | null = null;
   private kanjiMode = false;
+  /** Line width in half-width cells, used by layout helpers. */
+  readonly width: number;
 
   constructor(options: BuilderOptions = {}) {
     this.currentEncoding = options.encoding ?? 'cp437';
+    this.width = options.width ?? 48;
+    assertRange(this.width, 1, 255, 'width');
     if (options.initialize !== false) {
       this.push(INIT);
     }
@@ -86,8 +103,7 @@ export class EscPosBuilder {
   /** Print text in the current encoding. */
   text(value: string): this {
     this.ensureEncoding();
-    const { def } = resolveEncoding(this.currentEncoding);
-    this.push(iconv.encode(value, def.iconv));
+    this.push(resolveEncoding(this.currentEncoding).encode(value));
     return this;
   }
 
@@ -161,6 +177,99 @@ export class EscPosBuilder {
     return this.push([ESC, 0x33, dots]);
   }
 
+  // --- Layout helpers ---
+  // These compose text using the configured line width, counting East
+  // Asian wide characters (kanji, kana, hangul, ...) as two cells.
+
+  /** Print a horizontal rule spanning the full line width. */
+  rule(char = '-'): this {
+    const cell = this.displayWidth(char);
+    return this.textLine(char.repeat(Math.floor(this.width / cell)));
+  }
+
+  /**
+   * Print `left` and `right` on one line, separated by padding so that
+   * `right` ends at the right edge — e.g. item name and price.
+   * If both sides do not fit, they are separated by a single space.
+   */
+  leftRight(left: string, right: string, pad = ' '): this {
+    const gap = this.width - this.displayWidth(left) - this.displayWidth(right);
+    return this.textLine(left + pad.repeat(Math.max(gap, 1)) + right);
+  }
+
+  /**
+   * Print rows of fixed-width columns. Exactly one column may omit
+   * `width` to absorb the remaining line width. Cell content wider than
+   * its column is truncated.
+   *
+   * ```ts
+   * b.table(
+   *   [{}, { width: 4, align: 'right' }, { width: 8, align: 'right' }],
+   *   [['りんご', '2', '¥200'], ['バナナ', '10', '¥500']],
+   * );
+   * ```
+   */
+  table(columns: TableColumn[], rows: string[][]): this {
+    if (columns.length === 0) {
+      throw new RangeError('table requires at least one column');
+    }
+    const flexible = columns.filter((column) => column.width === undefined).length;
+    if (flexible > 1) {
+      throw new RangeError('At most one table column may omit width');
+    }
+    const fixed = columns.reduce((sum, column) => sum + (column.width ?? 0), 0);
+    const flexWidth = this.width - fixed;
+    if (flexible === 1 && flexWidth < 1) {
+      throw new RangeError(
+        `Fixed columns occupy ${fixed} cells, leaving no room in a ${this.width}-cell line`,
+      );
+    }
+    const widths = columns.map((column) => column.width ?? flexWidth);
+    for (const row of rows) {
+      if (row.length !== columns.length) {
+        throw new RangeError(`Row has ${row.length} cells, expected ${columns.length}`);
+      }
+      const line = row
+        .map((cell, i) => this.padCell(this.truncateCell(cell, widths[i]), widths[i], columns[i].align))
+        .join('');
+      this.textLine(line.trimEnd());
+    }
+    return this;
+  }
+
+  /**
+   * Display width of a string under the current encoding: East Asian
+   * Ambiguous characters (box drawing, ※, ...) are full-width in CJK
+   * encodings and half-width elsewhere.
+   */
+  private displayWidth(value: string): number {
+    return stringWidth(value, resolveEncoding(this.currentEncoding).multibyte);
+  }
+
+  /** Cut a string so its display width does not exceed `max` cells. */
+  private truncateCell(value: string, max: number): string {
+    const wide = resolveEncoding(this.currentEncoding).multibyte;
+    let out = '';
+    let used = 0;
+    for (const char of value) {
+      const cells = charWidth(char.codePointAt(0)!, wide);
+      if (used + cells > max) break;
+      out += char;
+      used += cells;
+    }
+    return out;
+  }
+
+  private padCell(value: string, width: number, align: TableColumn['align']): string {
+    const gap = width - this.displayWidth(value);
+    if (gap <= 0) return value;
+    if (align === 'right') return ' '.repeat(gap) + value;
+    if (align === 'center') {
+      return ' '.repeat(Math.floor(gap / 2)) + value + ' '.repeat(Math.ceil(gap / 2));
+    }
+    return value + ' '.repeat(gap);
+  }
+
   // --- QR code ---
 
   /** Print a QR code using native GS ( k commands. */
@@ -172,8 +281,8 @@ export class EscPosBuilder {
 
     const payload =
       options.encoding === undefined || options.encoding === 'utf8'
-        ? Buffer.from(data, 'utf8')
-        : iconv.encode(data, resolveEncoding(options.encoding).def.iconv);
+        ? new TextEncoder().encode(data)
+        : resolveEncoding(options.encoding).encode(data);
     if (payload.length === 0 || payload.length > 7089) {
       throw new RangeError(`QR data must be 1-7089 bytes, got ${payload.length}`);
     }
@@ -208,7 +317,7 @@ export class EscPosBuilder {
 
     // CODE128 requires a code-set selector; default to code set B.
     const content = type === 'CODE128' && !data.startsWith('{') ? `{B${data}` : data;
-    const bytes = Buffer.from(content, 'ascii');
+    const bytes = encodeAscii(content, 'barcode data');
     assertRange(bytes.length, 1, 255, 'barcode data length');
 
     this.push([GS, 0x68, height]);
@@ -293,7 +402,7 @@ export class EscPosBuilder {
   /** Emit code page / Kanji mode switches if the encoding changed. */
   private ensureEncoding(): void {
     if (this.appliedEncoding === this.currentEncoding) return;
-    const { def } = resolveEncoding(this.currentEncoding);
+    const def = resolveEncoding(this.currentEncoding);
     if (def.multibyte) {
       if (!this.kanjiMode) {
         this.push(KANJI_ON);

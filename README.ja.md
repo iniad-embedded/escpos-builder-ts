@@ -2,6 +2,8 @@
 
 [English README is here](./README.md)
 
+> **開発途中** — このパッケージは現在開発中です。v1.0.0 までは予告なく API が変更される可能性があります。
+
 サーマルレシートプリンター向けの ESC/POS コマンドを、メソッドチェーンで組み立てる TypeScript 製ライブラリです。
 
 - **フルーエントAPI** — テキスト・書式・QRコード・バーコード・画像・カットをチェーンで記述
@@ -10,6 +12,7 @@
 - **画像** — RGBA(canvas の `ImageData`)またはグレースケール入力、閾値 / Floyd–Steinberg ディザリング、`GS v 0` ラスター出力
 - **バーコード** — UPC-A/E, EAN-13/8, CODE39, ITF, CODABAR, CODE93, CODE128
 - **機種固有コマンド** — `.custom(bytes)` で任意のバイト列を挿入可能
+- **ランタイム依存ゼロ** — 変換テーブル同梱の純TypeScript。Node.js・ブラウザ(Web Bluetooth / WebUSB / WebSerial)・Deno・Bunで動作
 - 完全な型定義、Vitest によるテスト、ESM + CJS デュアルパッケージ
 
 ## インストール
@@ -18,7 +21,7 @@
 npm install escpos-builder-ts
 ```
 
-Node.js 18 以上が必要です。
+Node.js 18 以上およびモダンブラウザで動作します。Buffer等のNode polyfillは不要です。
 
 ## クイックスタート
 
@@ -53,16 +56,51 @@ const socket = createConnection(9100, '192.168.1.50', () => {
 });
 ```
 
+## 用紙幅とレシートレイアウト
+
+用紙幅はプリンター本体の物理仕様で、ESC/POSに設定コマンドはありません。1行に入る半角文字数(203dpi・Font Aなら 80mm = `48`、58mm = `32`。正確な値は機種マニュアルの「印字桁数」を参照)をビルダーに渡し、レイアウトヘルパーを使ってください:
+
+```ts
+const b = new EscPosBuilder({ encoding: 'japanese', width: 32 }); // 58mm
+
+b.rule()                       // --------------------------------
+ .leftRight('りんご', '¥100')   // りんご                     ¥100
+ .leftRight('バナナ', '¥50')
+ .rule('=')
+ .leftRight('合計', '¥150');
+```
+
+複数カラムの明細行には `table()` を使います(`width` を省略できるカラムは1つだけで、残り幅を吸収します。カラム幅を超えるセルは切り詰められます):
+
+```ts
+b.table(
+  [{}, { width: 4, align: 'right' }, { width: 8, align: 'right' }],
+  [
+    ['りんご', '2', '¥200'],
+    ['バナナ', '10', '¥500'],
+  ],
+);
+```
+
+`leftRight()`・`table()`・`rule()` は表示幅を正しく計算します: 全角(漢字・かな・ハングル等)は2桁、半角カナは1桁、East Asian Ambiguous文字(罫線 `━`・`※`・`①` など)はCJK系エンコーディングでは2桁・それ以外では1桁として扱います。幅計算関数は `stringWidth(value, ambiguousAsWide?)` としてエクスポートされています。
+
+画像は `width` を印字可能ドット数以下(58mm = 384ドット、80mm = 512〜576ドット)にしてください。印字領域自体を狭めたい場合は、左マージン(`GS L`)・印字領域幅(`GS W`)コマンドを `.custom()` で送信できます。
+
 ## 多言語テキスト
 
 コンストラクタでエンコーディングを指定するか、`.encoding()` で途中切替できます。コードページ(`ESC t`)・漢字モード(`FS &` / `FS .`)の切替コマンドは、実際にエンコーディングが変わったときだけ自動挿入されます。
 
 ```ts
+import { EscPosBuilder, registerEncoding } from 'escpos-builder-ts';
+import gbk from 'escpos-builder-ts/encodings/gbk';
+
+registerEncoding(gbk); // 中国語・韓国語はバンドルサイズ配慮のためオプトイン
+
 const data = new EscPosBuilder({ encoding: 'japanese' })
   .textLine('いらっしゃいませ')   // 漢字モード + CP932 (Shift_JIS)
   .encoding('cp437')
   .textLine('Thank you!')
-  .encoding('gb18030')
+  .encoding('gbk')
   .textLine('谢谢')
   .build();
 ```
@@ -72,9 +110,9 @@ const data = new EscPosBuilder({ encoding: 'japanese' })
 | 名前 | 言語・地域 | 方式 |
 | --- | --- | --- |
 | `cp932` (`shiftjis`, `japanese`) | 日本語 | 漢字モード, Shift_JIS |
-| `gb18030` (`gbk`) | 簡体字中国語 | 漢字モード |
-| `big5` | 繁体字中国語 | 漢字モード |
-| `euckr` (`cp949`, `korean`) | 韓国語 | 漢字モード |
+| `gbk` (`gb2312`)² | 簡体字中国語 | 漢字モード |
+| `big5`² | 繁体字中国語 | 漢字モード |
+| `euckr` (`cp949`, `korean`)² | 韓国語 | 漢字モード |
 | `cp437` (`ascii`) | 米国・標準欧州 | `ESC t 0` |
 | `cp850`, `cp858`, `cp1252` (`latin1`), `iso885915` | 西欧 | `ESC t` |
 | `cp852`, `cp1250`, `iso88592` | 中欧 | `ESC t` |
@@ -88,6 +126,7 @@ const data = new EscPosBuilder({ encoding: 'japanese' })
 | `cp860`, `cp863`, `cp865` | ポルトガル語・カナダフランス語・北欧 | `ESC t` |
 
 ¹ 右横書き(RTL)の整形は行いません。与えられた順序のまま印字されます。
+² サブパスモジュールとして提供しています(ブラウザでのバンドルサイズ配慮のため)。`escpos-builder-ts/encodings/gbk`・`.../big5`・`.../euckr` をインポートし、起動時に一度 `registerEncoding()` に渡してください。日本語(`cp932`)と単バイトコードページはすべて本体組み込みです。独自のコードページやエンコーダーも `registerEncoding()` で登録できます。
 
 > **注意** — 多バイト言語の印字には、対応する文字セットを搭載したプリンター(日本語なら日本語モデル)が必要です。コードページ番号は Epson 標準に従っています。他社プリンターで番号が異なる場合は、マニュアルを確認のうえ `.custom()` で `ESC t` を直接送信してください。
 
@@ -158,6 +197,9 @@ new MyPrinterBuilder().textLine('お呼び出し').buzzer(3).cut().build();
 | メソッド | ESC/POS | 説明 |
 | --- | --- | --- |
 | `text(s)` / `textLine(s)` | — | テキスト印字(現在のエンコーディング) |
+| `rule(char?)` | — | 行幅いっぱいの罫線 |
+| `leftRight(left, right, pad?)` | — | 左寄せ+右寄せを1行に配置 |
+| `table(columns, rows)` | — | カラムごとに幅・揃えを指定できる表組み |
 | `encoding(name)` | `ESC t` / `FS &` | エンコーディング切替 |
 | `newline(n?)` / `tab()` / `feed(n?)` | `LF` / `HT` / `ESC d` | 改行・タブ・紙送り |
 | `bold(on?)` | `ESC E` | 太字 |
@@ -178,19 +220,40 @@ new MyPrinterBuilder().textLine('お呼び出し').buzzer(3).cut().build();
 | `build()` | — | `Uint8Array` として取得 |
 | `clear()` | — | バッファ破棄 |
 
+## ブラウザでの利用
+
+`build()` は素の `Uint8Array` を返すので、ブラウザからは任意のトランスポートでそのまま送信できます:
+
+```ts
+// Web Bluetooth
+await characteristic.writeValueWithoutResponse(data);
+
+// WebUSB
+await device.transferOut(endpointNumber, data);
+```
+
+エンコーダーは純JavaScriptで変換テーブルを同梱しているため、polyfillは一切不要です。
+
 ## 開発
 
 ```sh
 npm install
-npm test          # vitest
-npm run typecheck # tsc --noEmit
-npm run build     # tsup → dist/ (ESM + CJS + d.ts)
+npm test                 # vitest
+npm run typecheck        # tsc --noEmit
+npm run build            # tsup → dist/ (ESM + CJS + d.ts)
+npm run generate:tables  # src/tables/ を iconv-lite (devDependency) から再生成
 ```
 
 ## コントリビュート
 
 Issue・Pull Request を歓迎します。[CONTRIBUTING.md](./CONTRIBUTING.md) をご覧ください。
 
+## 商標について
+
+「QRコード」は株式会社デンソーウェーブの登録商標です。「EPSON」「ESC/POS」はセイコーエプソン株式会社の登録商標です。本プロジェクトはこれらの企業とは無関係であり、承認・提携関係はありません。
+
 ## ライセンス
 
 [MIT](./LICENSE) © INIAD組み込み研究会 (INIAD Embedded)
+
+`src/tables/` の文字コード変換テーブルは [iconv-lite](https://github.com/ashtuchkin/iconv-lite)(MITライセンス、Copyright (c) 2011 Alexander Shtuchkin)のマッピングデータから生成しています。

@@ -16,6 +16,23 @@ export interface BuilderOptions {
    * @default true
    */
   initialize?: boolean;
+  /**
+   * Line width in half-width character cells, used by layout helpers
+   * such as `rule()` and `leftRight()`. Typical values: 48 for 80 mm
+   * paper, 32 for 58 mm paper (Font A at 203 dpi).
+   * @default 48
+   */
+  width?: number;
+}
+
+export interface TableColumn {
+  /**
+   * Column width in half-width cells. Exactly one column may omit it
+   * to absorb the remaining line width.
+   */
+  width?: number;
+  /** Cell alignment. @default 'left' */
+  align?: 'left' | 'center' | 'right';
 }
 
 export type QRErrorCorrection = 'L' | 'M' | 'Q' | 'H';

@@ -2,6 +2,8 @@
 
 [日本語版 README はこちら / Japanese README](./README.ja.md)
 
+> **Work in progress** — this package is under active development. The API may change without notice until v1.0.0.
+
 A fluent, dependency-light ESC/POS command builder for thermal receipt printers, written in TypeScript.
 
 - **Fluent API** — chain text, formatting, QR codes, barcodes, images, and cuts
@@ -10,6 +12,7 @@ A fluent, dependency-light ESC/POS command builder for thermal receipt printers,
 - **Images** — RGBA (canvas `ImageData`) or grayscale input, threshold or Floyd–Steinberg dithering, `GS v 0` raster output
 - **Barcodes** — UPC-A/E, EAN-13/8, CODE39, ITF, CODABAR, CODE93, CODE128
 - **Vendor commands** — `.custom(bytes)` escape hatch for model-specific commands
+- **Zero runtime dependencies** — pure TypeScript with bundled encoding tables; runs in Node.js, browsers (Web Bluetooth / WebUSB / WebSerial), Deno, and Bun
 - Fully typed, tested with Vitest, ESM + CJS dual package
 
 ## Installation
@@ -18,7 +21,7 @@ A fluent, dependency-light ESC/POS command builder for thermal receipt printers,
 npm install escpos-builder-ts
 ```
 
-Requires Node.js ≥ 18.
+Works in Node.js ≥ 18 and modern browsers — no Buffer or other Node polyfills needed.
 
 ## Quick start
 
@@ -53,16 +56,51 @@ const socket = createConnection(9100, '192.168.1.50', () => {
 });
 ```
 
+## Paper width and receipt layout
+
+Paper width is a physical property of the printer — ESC/POS has no command to set it. Tell the builder how many half-width characters fit on one line (`48` for 80 mm paper, `32` for 58 mm paper with Font A at 203 dpi — check your printer manual), and use the layout helpers:
+
+```ts
+const b = new EscPosBuilder({ encoding: 'japanese', width: 32 }); // 58 mm
+
+b.rule()                       // --------------------------------
+ .leftRight('りんご', '¥100')   // りんご                     ¥100
+ .leftRight('バナナ', '¥50')
+ .rule('=')
+ .leftRight('合計', '¥150');
+```
+
+For multi-column item lines, `table()` takes column definitions (exactly one column may omit `width` to absorb the rest of the line; overlong cells are truncated):
+
+```ts
+b.table(
+  [{}, { width: 4, align: 'right' }, { width: 8, align: 'right' }],
+  [
+    ['りんご', '2', '¥200'],
+    ['バナナ', '10', '¥500'],
+  ],
+);
+```
+
+`leftRight()`, `table()`, and `rule()` measure display width correctly for mixed scripts: CJK characters count as 2 cells, halfwidth katakana as 1, and East Asian *Ambiguous* characters (box drawing `━`, `※`, `①`, …) as 2 in CJK encodings and 1 elsewhere. The measurement function is exported as `stringWidth(value, ambiguousAsWide?)`.
+
+For images, keep `width` at or below the printable dot count (384 dots for 58 mm, 512–576 for 80 mm). To shrink the printable area itself, the left margin (`GS L`) and print area width (`GS W`) commands can be sent via `.custom()`.
+
 ## Multi-language text
 
 Pass an encoding at construction or switch mid-stream with `.encoding()`. Code page (`ESC t`) and Kanji mode (`FS &` / `FS .`) commands are inserted automatically and only when the encoding actually changes.
 
 ```ts
+import { EscPosBuilder, registerEncoding } from 'escpos-builder-ts';
+import gbk from 'escpos-builder-ts/encodings/gbk';
+
+registerEncoding(gbk); // Chinese / Korean are opt-in to keep bundles small
+
 const data = new EscPosBuilder({ encoding: 'japanese' })
   .textLine('いらっしゃいませ')   // CP932 (Shift_JIS) in Kanji mode
   .encoding('cp437')
   .textLine('Thank you!')
-  .encoding('gb18030')
+  .encoding('gbk')
   .textLine('谢谢')
   .build();
 ```
@@ -72,9 +110,9 @@ const data = new EscPosBuilder({ encoding: 'japanese' })
 | Name | Language / region | Mechanism |
 | --- | --- | --- |
 | `cp932` (`shiftjis`, `japanese`) | Japanese | Kanji mode, Shift_JIS |
-| `gb18030` (`gbk`) | Simplified Chinese | Kanji mode |
-| `big5` | Traditional Chinese | Kanji mode |
-| `euckr` (`cp949`, `korean`) | Korean | Kanji mode |
+| `gbk` (`gb2312`)² | Simplified Chinese | Kanji mode |
+| `big5`² | Traditional Chinese | Kanji mode |
+| `euckr` (`cp949`, `korean`)² | Korean | Kanji mode |
 | `cp437` (`ascii`) | USA / Standard Europe | `ESC t 0` |
 | `cp850`, `cp858`, `cp1252` (`latin1`), `iso885915` | Western Europe | `ESC t` |
 | `cp852`, `cp1250`, `iso88592` | Central Europe | `ESC t` |
@@ -88,6 +126,7 @@ const data = new EscPosBuilder({ encoding: 'japanese' })
 | `cp860`, `cp863`, `cp865` | Portuguese / Canadian French / Nordic | `ESC t` |
 
 ¹ Right-to-left shaping is not performed; the printer prints code points in the order given.
+² Shipped as a subpath module to keep browser bundles small — import it (`escpos-builder-ts/encodings/gbk`, `.../big5`, `.../euckr`) and pass it to `registerEncoding()` once at startup. Japanese (`cp932`) and all single-byte code pages are built in. You can also register your own code pages or encoders with `registerEncoding()`.
 
 > **Note** — multi-byte languages require a printer model with the corresponding character set installed (e.g. Japanese models for CP932). Code page numbers follow the Epson standard; for other vendors, check your printer manual and use `.custom()` if a different `ESC t` value is needed.
 
@@ -158,6 +197,9 @@ new MyPrinterBuilder().textLine('Order ready').buzzer(3).cut().build();
 | Method | ESC/POS | Description |
 | --- | --- | --- |
 | `text(s)` / `textLine(s)` | — | Print text (in the current encoding) |
+| `rule(char?)` | — | Horizontal rule spanning the line width |
+| `leftRight(left, right, pad?)` | — | Left- and right-aligned text on one line |
+| `table(columns, rows)` | — | Fixed-width columns with per-column alignment |
 | `encoding(name)` | `ESC t` / `FS &` | Switch text encoding |
 | `newline(n?)` / `tab()` / `feed(n?)` | `LF` / `HT` / `ESC d` | Whitespace and feeding |
 | `bold(on?)` | `ESC E` | Emphasized mode |
@@ -178,19 +220,40 @@ new MyPrinterBuilder().textLine('Order ready').buzzer(3).cut().build();
 | `build()` | — | Get the result as `Uint8Array` |
 | `clear()` | — | Discard accumulated commands |
 
+## Browser usage
+
+`build()` returns a plain `Uint8Array`, so sending it from a browser is just a matter of picking a transport:
+
+```ts
+// Web Bluetooth
+await characteristic.writeValueWithoutResponse(data);
+
+// WebUSB
+await device.transferOut(endpointNumber, data);
+```
+
+There is nothing to polyfill — the encoder is pure JavaScript and ships its own conversion tables.
+
 ## Development
 
 ```sh
 npm install
-npm test          # vitest
-npm run typecheck # tsc --noEmit
-npm run build     # tsup → dist/ (ESM + CJS + d.ts)
+npm test                 # vitest
+npm run typecheck        # tsc --noEmit
+npm run build            # tsup → dist/ (ESM + CJS + d.ts)
+npm run generate:tables  # regenerate src/tables/ from iconv-lite (devDependency)
 ```
 
 ## Contributing
 
 Issues and pull requests are welcome! See [CONTRIBUTING.md](./CONTRIBUTING.md).
 
+## Trademarks
+
+QR Code is a registered trademark of DENSO WAVE INCORPORATED in Japan and other countries. EPSON and ESC/POS are registered trademarks of Seiko Epson Corporation. This project is not affiliated with or endorsed by these companies.
+
 ## License
 
 [MIT](./LICENSE) © INIAD組み込み研究会 (INIAD Embedded)
+
+The character-encoding tables in `src/tables/` are generated from mapping data in [iconv-lite](https://github.com/ashtuchkin/iconv-lite) (MIT License, Copyright (c) 2011 Alexander Shtuchkin).

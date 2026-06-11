@@ -1,6 +1,6 @@
 {
   "name": "escpos-builder-ts",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Fluent ESC/POS command builder with multi-language text (Japanese, Chinese, Korean, European), QR code, barcode, and image support",
   "type": "module",
   "main": "./dist/index.cjs",
@@ -11,8 +11,24 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "require": "./dist/index.cjs"
+    },
+    "./encodings/gbk": {
+      "types": "./dist/encodings/gbk.d.ts",
+      "import": "./dist/encodings/gbk.js",
+      "require": "./dist/encodings/gbk.cjs"
+    },
+    "./encodings/big5": {
+      "types": "./dist/encodings/big5.d.ts",
+      "import": "./dist/encodings/big5.js",
+      "require": "./dist/encodings/big5.cjs"
+    },
+    "./encodings/euckr": {
+      "types": "./dist/encodings/euckr.d.ts",
+      "import": "./dist/encodings/euckr.js",
+      "require": "./dist/encodings/euckr.cjs"
     }
   },
+  "sideEffects": false,
   "files": [
     "dist",
     "README.md",
@@ -24,6 +40,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
+    "generate:tables": "node scripts/generate-tables.mjs",
     "prepublishOnly": "npm run typecheck && npm run test && npm run build"
   },
   "keywords": [
@@ -52,25 +69,11 @@
   "engines": {
     "node": ">=18"
   },
-  "dependencies": {
-    "iconv-lite": "^0.6.3"
-  },
   "devDependencies": {
     "@types/node": "^22.0.0",
+    "iconv-lite": "^0.6.3",
     "tsup": "^8.0.0",
     "typescript": "^5.5.0",
     "vitest": "^3.0.0"
-  },
-  "tsup": {
-    "entry": [
-      "src/index.ts"
-    ],
-    "format": [
-      "esm",
-      "cjs"
-    ],
-    "dts": true,
-    "sourcemap": true,
-    "clean": true
   }
 }
