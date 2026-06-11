@@ -1,0 +1,76 @@
+{
+  "name": "escpos-builder-ts",
+  "version": "0.1.0",
+  "description": "Fluent ESC/POS command builder with multi-language text (Japanese, Chinese, Korean, European), QR code, barcode, and image support",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "README.ja.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run typecheck && npm run test && npm run build"
+  },
+  "keywords": [
+    "escpos",
+    "esc-pos",
+    "thermal-printer",
+    "receipt-printer",
+    "pos",
+    "printer",
+    "qrcode",
+    "barcode",
+    "japanese",
+    "shift-jis",
+    "cp932"
+  ],
+  "license": "MIT",
+  "author": "INIAD組み込み研究会",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/iniad-embedded/escpos-builder-ts.git"
+  },
+  "bugs": {
+    "url": "https://github.com/iniad-embedded/escpos-builder-ts/issues"
+  },
+  "homepage": "https://github.com/iniad-embedded/escpos-builder-ts#readme",
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "iconv-lite": "^0.6.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsup": "^8.0.0",
+    "typescript": "^5.5.0",
+    "vitest": "^3.0.0"
+  },
+  "tsup": {
+    "entry": [
+      "src/index.ts"
+    ],
+    "format": [
+      "esm",
+      "cjs"
+    ],
+    "dts": true,
+    "sourcemap": true,
+    "clean": true
+  }
+}

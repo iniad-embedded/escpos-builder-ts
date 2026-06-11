@@ -1,0 +1,38 @@
+name: Bug report
+description: Report incorrect bytes, encoding problems, or printing issues
+labels: [bug]
+body:
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Minimal reproduction
+      description: The builder calls that produce the problem.
+      placeholder: |
+        new EscPosBuilder({ encoding: 'japanese' })
+          .textLine('こんにちは')
+          .build();
+    validations:
+      required: true
+  - type: input
+    id: printer
+    attributes:
+      label: Printer vendor / model
+      placeholder: e.g. EPSON TM-T88VI
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: A hex dump of the output of `build()` is very helpful.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Package version / Node.js version
+      placeholder: escpos-builder-ts 0.1.0, Node 22.x
