@@ -6,6 +6,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-06-17
+
+### Fixed
+
+- cp932 (Shift-JIS) encoding now emits `FS C 1` before entering Kanji mode
+  (`FS &`), preventing garbled output on printers that default to JIS when
+  Kanji mode is activated without an explicit code-system selection.
+
+### Added
+
+- `EncodingDef.kanjiCode` — optional field for custom multi-byte encodings
+  to specify a `FS C n` code-system selector emitted before `FS &`.
+
 ## [0.1.1] - 2026-06-13
 
 Initial public release.

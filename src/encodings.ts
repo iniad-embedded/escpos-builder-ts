@@ -26,6 +26,12 @@ export interface EncodingDef {
   /** True for multi-byte CJK encodings printed in Kanji mode. */
   multibyte?: boolean;
   /**
+   * FS C n parameter to emit before entering Kanji mode (FS &).
+   * Selects the multi-byte character code system on printers that
+   * require an explicit choice — e.g. 0x31 for Shift-JIS (cp932).
+   */
+  kanjiCode?: number;
+  /**
    * Generated mapping table: for single-byte encodings, 128 chars for
    * bytes 0x80-0xFF; for multi-byte, a pair string of
    * [unicode char, code char] (code char = 1 byte or 2 big-endian bytes).
@@ -39,6 +45,8 @@ export interface ResolvedEncoding {
   name: string;
   codepage?: number;
   multibyte: boolean;
+  /** FS C n parameter, if this encoding requires explicit code-system selection. */
+  kanjiCode?: number;
   encode: (text: string) => Uint8Array;
 }
 
@@ -124,6 +132,7 @@ export function registerEncoding(def: EncodingDef): void {
     name: def.name,
     codepage: def.codepage,
     multibyte: def.multibyte === true,
+    kanjiCode: def.kanjiCode,
     encode,
   });
   for (const alias of def.aliases ?? []) {
@@ -178,5 +187,6 @@ registerEncoding({
   name: 'cp932', // Japanese (Shift_JIS)
   aliases: ['shiftjis', 'shift_jis', 'japanese'],
   multibyte: true,
+  kanjiCode: 0x31, // FS C 1: select Shift-JIS (some printers default to JIS)
   table: cp932Table,
 });
