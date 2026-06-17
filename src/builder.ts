@@ -1,6 +1,6 @@
 import { ESC, FS, GS, HT, INIT, KANJI_OFF, KANJI_ON, LF } from './commands.js';
 import { resolveEncoding, type EncodingName } from './encodings.js';
-import { toRaster } from './image.js';
+import { splitImage, toRaster } from './image.js';
 import { charWidth, stringWidth } from './width.js';
 import type {
   Alignment,
@@ -351,11 +351,35 @@ export class EscPosBuilder {
     return this;
   }
 
+  /**
+   * Print `source` spanning the cut position to fill the blank gap that
+   * thermal printers leave between the head and the cutter on the next receipt.
+   * `ratio` controls where the cut falls (0–1, default 0.5), rounded to the
+   * nearest multiple of 8 px. Images shorter than 16 rows are printed whole
+   * followed by a cut.
+   */
+  imageWithMidCut(source: ImageSource, options: ImageOptions & { ratio?: number } = {}): this {
+    const { ratio, ...imageOptions } = options;
+    if (source.height < 16) {
+      return this.image(source, imageOptions).cut();
+    }
+    const [top, bottom] = splitImage(source, ratio);
+    return this.image(top, imageOptions).cut().image(bottom, imageOptions);
+  }
+
   // --- Hardware ---
 
-  /** Feed to the cut position and cut the paper (GS V function B). */
+  /**
+   * Cut the paper.
+   * With no feed (default), emits `GS V 0/1` — cuts immediately without
+   * advancing the paper. With a non-zero feed, emits `GS V m n` to feed
+   * `n` dots before cutting.
+   */
   cut(type: CutType = 'full', feed = 0): this {
     assertRange(feed, 0, 255, 'feed');
+    if (feed === 0) {
+      return this.push([GS, 0x56, type === 'partial' ? 1 : 0]);
+    }
     return this.push([GS, 0x56, type === 'partial' ? 66 : 65, feed]);
   }
 

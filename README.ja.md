@@ -58,10 +58,10 @@ const socket = createConnection(9100, '192.168.1.50', () => {
 
 ## 用紙幅とレシートレイアウト
 
-用紙幅はプリンター本体の物理仕様で、ESC/POSに設定コマンドはありません。1行に入る半角文字数(203dpi・Font Aなら 80mm = `48`、58mm = `32`。正確な値は機種マニュアルの「印字桁数」を参照)をビルダーに渡し、レイアウトヘルパーを使ってください:
+用紙幅はプリンター本体の物理仕様で、ESC/POSに設定コマンドはありません。1行に入る半角文字数(203dpi・Font Aなら 80mm = `48`、58mm = `35`。正確な値は機種マニュアルの「印字桁数」を参照)をビルダーに渡し、レイアウトヘルパーを使ってください:
 
 ```ts
-const b = new EscPosBuilder({ encoding: 'japanese', width: 32 }); // 58mm
+const b = new EscPosBuilder({ encoding: 'japanese', width: 35 }); // 58mm
 
 b.rule()                       // --------------------------------
  .leftRight('りんご', '¥100')   // りんご                     ¥100
@@ -156,6 +156,42 @@ builder.image({ data: grayPixels, width: 384, height: 200 }, { threshold: 128 })
 
 Node.js で PNG/JPEG ファイルを印字する場合は、[`sharp`](https://github.com/lovell/sharp) や [`jimp`](https://github.com/jimp-dev/jimp) などでデコードして生ピクセルを渡してください。
 
+### 次のレシート先頭の空白を減らす
+
+サーマルプリンターはヘッドとカッターの間に物理的な距離があるため、カット後に次のレシートの先頭に必ず空白が生じます。ロゴをその距離にまたがるように印刷することでこの空白を埋めます。カット位置より上の部分は現在のレシートの末尾に印刷され、下の部分はヘッドとカッターの間に残るため、次のレシートはロゴの続きから空白なしで開始されます。
+
+`.imageWithMidCut()` を使うと1回の呼び出しで実現できます:
+
+```ts
+builder
+  .feed(3)
+  .imageWithMidCut(logo);
+```
+
+分割位置はデフォルトで50%で、8ピクセル境界に丸められます。`ratio` でプリンターのヘッド〜カッター間距離に合わせて調整してください:
+
+```ts
+builder.imageWithMidCut(logo, { ratio: 0.4 });
+builder.imageWithMidCut(logo, { ratio: 0.5, dither: 'floyd-steinberg' });
+```
+
+16行未満の画像は分割せず、通常印刷→カットになります。
+
+### 手動での切り出し
+
+独自の分割ロジックが必要な場合は、`splitImage(source, ratio?)` と `cropImage(source, top, height)` をスタンドアロン関数として使えます:
+
+```ts
+import { cropImage, splitImage } from 'escpos-builder-ts';
+
+// パーセント指定(8px境界アライメント、各半分最低8行)
+const [top, bottom] = splitImage(logo, 0.4);
+
+// または行番号で直接指定
+const top = cropImage(logo, 0, 40);
+const bottom = cropImage(logo, 40, logo.height - 40);
+```
+
 ## バーコード
 
 ```ts
@@ -165,6 +201,17 @@ builder.barcode('4901234567894', 'EAN13', {
   hriPosition: 'below', // 'none' | 'above' | 'below' | 'both'
   hriFont: 'a',
 });
+```
+
+## カット
+
+`feed` を省略した `.cut()` は `GS V 0/1` を出力し、紙送りなしで即時カットします。`feed` に 0 より大きい値を渡すと `GS V m n` を出力し、指定ドット数だけ送ってからカットします:
+
+```ts
+builder.cut();              // フルカット、紙送りなし  → GS V 0
+builder.cut('partial');     // パーシャルカット、紙送りなし → GS V 1
+builder.cut('full', 64);    // 64ドット送ってフルカット
+builder.cut('partial', 64); // 64ドット送ってパーシャルカット
 ```
 
 ## 機種固有コマンド
@@ -213,12 +260,22 @@ new MyPrinterBuilder().textLine('お呼び出し').buzzer(3).cut().build();
 | `qrcode(data, opts?)` | `GS ( k` | QRコード |
 | `barcode(data, type, opts?)` | `GS k` | バーコード |
 | `image(src, opts?)` | `GS v 0` | ラスター画像 |
-| `cut(type?, feed?)` | `GS V` | フル / パーシャルカット |
+| `imageWithMidCut(src, opts?)` | `GS v 0` + `GS V 0` | カットをまたいで画像を印刷し、次のレシート先頭の空白を埋める |
+| `cut(type?, feed?)` | `GS V 0/1` または `GS V m n` | 紙送りなしカット(デフォルト)、または `n` ドット送ってカット |
 | `cashDrawer(pin?, on?, off?)` | `ESC p` | キャッシュドロワー |
 | `init()` | `ESC @` | プリンター初期化 |
 | `custom(bytes)` / `raw(bytes)` | — | 生バイト列の挿入 |
 | `build()` | — | `Uint8Array` として取得 |
 | `clear()` | — | バッファ破棄 |
+
+ユーティリティ関数(ビルダーのメソッドではなく直接インポートして使用):
+
+| 関数 | 説明 |
+| --- | --- |
+| `splitImage(source, ratio?)` | `ImageSource` を `ratio`(デフォルト 0.5)で分割し `[top, bottom]` を返す。8px境界アライメント済み |
+| `cropImage(source, top, height)` | `ImageSource` から行 `top` 〜 `top + height − 1` を切り出す |
+| `toRaster(source, opts?)` | `ImageSource` を 1bpp の `Raster` に変換(`.image()` が内部で使用) |
+| `stringWidth(value, ambiguousAsWide?)` | 文字列の表示幅を半角セル数で返す |
 
 ## ブラウザでの利用
 

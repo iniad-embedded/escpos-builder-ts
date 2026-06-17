@@ -6,6 +6,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-06-17
+
+### Fixed
+
+- `.cut()` now emits `GS V 0` (full) or `GS V 1` (partial) when `feed` is 0
+  (the default), cutting immediately without advancing the paper. Previously it
+  emitted `GS V 65 0` / `GS V 66 0` (function B), which caused an unintended
+  paper advance on many printers.
+
+### Added
+
+- `cropImage(source, top, height)` — returns a new `ImageSource` containing
+  the rows from `top` through `top + height - 1`.
+- `splitImage(source, ratio?)` — splits an `ImageSource` at `ratio` (default
+  0.5), rounded to the nearest 8-pixel boundary. Returns `[top, bottom]`.
+  Throws if the image is fewer than 16 rows tall.
+- `EscPosBuilder.imageWithMidCut(source, options?)` — prints `source` spanning
+  the cut position to fill the blank gap that thermal printers leave between
+  the print head and the cutter on the next receipt. Accepts the same
+  `ImageOptions` as `.image()` plus an optional `ratio` (default 0.5).
+  Images shorter than 16 rows are printed whole followed by a cut.
+
 ## [0.2.0] - 2026-06-17
 
 ### Fixed

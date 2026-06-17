@@ -7,7 +7,7 @@ export {
   type EncodingName,
   type ResolvedEncoding,
 } from './encodings.js';
-export { toRaster, type Raster } from './image.js';
+export { cropImage, splitImage, toRaster, type Raster } from './image.js';
 export { charWidth, stringWidth } from './width.js';
 export type {
   Alignment,
