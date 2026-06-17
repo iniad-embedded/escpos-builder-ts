@@ -1,4 +1,4 @@
-import { ESC, GS, HT, INIT, KANJI_OFF, KANJI_ON, LF } from './commands.js';
+import { ESC, FS, GS, HT, INIT, KANJI_OFF, KANJI_ON, LF } from './commands.js';
 import { resolveEncoding, type EncodingName } from './encodings.js';
 import { toRaster } from './image.js';
 import { charWidth, stringWidth } from './width.js';
@@ -405,6 +405,9 @@ export class EscPosBuilder {
     const def = resolveEncoding(this.currentEncoding);
     if (def.multibyte) {
       if (!this.kanjiMode) {
+        if (def.kanjiCode !== undefined) {
+          this.push([FS, 0x43, def.kanjiCode]);
+        }
         this.push(KANJI_ON);
         this.kanjiMode = true;
       }

@@ -1,6 +1,6 @@
 {
   "name": "escpos-builder-ts",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Fluent ESC/POS command builder with multi-language text (Japanese, Chinese, Korean, European), QR code, barcode, and image support",
   "type": "module",
   "main": "./dist/index.cjs",

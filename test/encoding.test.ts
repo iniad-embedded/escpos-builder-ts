@@ -10,6 +10,7 @@ registerEncoding(big5);
 registerEncoding(euckr);
 
 const KANJI_ON = [0x1c, 0x26];
+const KANJI_ON_JP = [0x1c, 0x43, 0x31, 0x1c, 0x26]; // FS C 1 + FS &
 const KANJI_OFF = [0x1c, 0x2e];
 
 describe('multi-byte encodings', () => {
@@ -17,7 +18,7 @@ describe('multi-byte encodings', () => {
     const bytes = new EscPosBuilder({ initialize: false, encoding: 'cp932' })
       .text('こんにちは')
       .build();
-    const expected = [...KANJI_ON, ...iconv.encode('こんにちは', 'cp932')];
+    const expected = [...KANJI_ON_JP, ...iconv.encode('こんにちは', 'cp932')];
     expect(bytes).toEqual(Uint8Array.from(expected));
   });
 
@@ -34,7 +35,7 @@ describe('multi-byte encodings', () => {
       .text('ABC 123')
       .build();
     const ascii = [...'ABC 123'].map((c) => c.charCodeAt(0));
-    expect(bytes).toEqual(Uint8Array.from([...KANJI_ON, ...ascii]));
+    expect(bytes).toEqual(Uint8Array.from([...KANJI_ON_JP, ...ascii]));
   });
 
   it.each([
@@ -56,14 +57,14 @@ describe('multi-byte encodings', () => {
     const bytes = new EscPosBuilder({ initialize: false, encoding: 'cp932' })
       .text(sample)
       .build();
-    expect(bytes).toEqual(Uint8Array.from([...KANJI_ON, ...iconv.encode(sample, 'cp932')]));
+    expect(bytes).toEqual(Uint8Array.from([...KANJI_ON_JP, ...iconv.encode(sample, 'cp932')]));
   });
 
   it('replaces unmappable characters with "?"', () => {
     const bytes = new EscPosBuilder({ initialize: false, encoding: 'cp932' })
       .text('A\u{1F600}B') // astral emoji is not representable in CP932
       .build();
-    expect(bytes).toEqual(Uint8Array.from([...KANJI_ON, 0x41, 0x3f, 0x42]));
+    expect(bytes).toEqual(Uint8Array.from([...KANJI_ON_JP, 0x41, 0x3f, 0x42]));
   });
 });
 
@@ -98,7 +99,7 @@ describe('encoding switches mid-stream', () => {
     const expected = [
       ...KANJI_OFF, 0x1b, 0x74, 0, // initial cp437
       ...[...'Total'].map((c) => c.charCodeAt(0)),
-      ...KANJI_ON,
+      ...KANJI_ON_JP,
       ...iconv.encode('合計', 'cp932'),
       ...iconv.encode('です', 'cp932'), // no second switch
       ...KANJI_OFF, 0x1b, 0x74, 0, // back to cp437

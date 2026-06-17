@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { EscPosBuilder, stringWidth } from '../src/index.js';
 
 const CP437_SWITCH = [0x1c, 0x2e, 0x1b, 0x74, 0x00];
-const KANJI_ON = [0x1c, 0x26];
+const KANJI_ON_JP = [0x1c, 0x43, 0x31, 0x1c, 0x26]; // FS C 1 + FS &
 
 describe('stringWidth', () => {
   it.each([
@@ -38,7 +38,7 @@ describe('rule', () => {
       .rule('━')
       .build();
     expect(bytes).toEqual(
-      Uint8Array.from([...KANJI_ON, ...iconv.encode('━━━━', 'cp932'), 0x0a]),
+      Uint8Array.from([...KANJI_ON_JP, ...iconv.encode('━━━━', 'cp932'), 0x0a]),
     );
   });
 });
@@ -59,7 +59,7 @@ describe('leftRight', () => {
       .build();
     // りんご = 6 cells, 100 = 3 cells → 7 spaces of padding
     expect(bytes).toEqual(
-      Uint8Array.from([...KANJI_ON, ...iconv.encode('りんご       100', 'cp932'), 0x0a]),
+      Uint8Array.from([...KANJI_ON_JP, ...iconv.encode('りんご       100', 'cp932'), 0x0a]),
     );
   });
 
