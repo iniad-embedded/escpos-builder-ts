@@ -6,6 +6,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-06-17
+
+### Fixed
+
+- Validate 1D barcode data against ESC/POS `GS k` requirements before emitting
+  bytes, including digit-only/length constraints for UPC/EAN/ITF, allowed
+  character sets for CODE39/CODABAR/CODE93, CODABAR start/stop characters, and
+  CODE128 code set selectors.
+- Escape literal `{` characters in CODE128 data when the builder automatically
+  prefixes code set B (`{B`), preventing accidental control-sequence parsing by
+  the printer.
+- Fix the TypeScript typecheck by importing the `ImageSource` test helper type.
+
 ## [0.3.0] - 2026-06-17
 
 ### Fixed

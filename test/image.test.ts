@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { EscPosBuilder, cropImage, splitImage, toRaster } from '../src/index.js';
+import type { ImageSource } from '../src/index.js';
 
 /** Build an RGBA buffer from a row-major array of luminance values. */
 function rgba(pixels: number[]): Uint8Array {

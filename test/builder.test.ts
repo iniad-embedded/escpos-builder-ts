@@ -96,4 +96,23 @@ describe('barcode', () => {
     // ... GS k <CODE128> <len=4> '{' 'B' 'H' 'i'
     expect(Array.from(bytes.slice(-8))).toEqual([0x1d, 0x6b, 73, 4, 0x7b, 0x42, 0x48, 0x69]);
   });
+
+  it('escapes literal CODE128 braces when adding the code set B selector', () => {
+    const bytes = new EscPosBuilder({ initialize: false }).barcode('A{B', 'CODE128').build();
+    expect(Array.from(bytes.slice(-10))).toEqual([
+      0x1d, 0x6b, 73, 6, 0x7b, 0x42, 0x41, 0x7b, 0x7b, 0x42,
+    ]);
+  });
+
+  it.each([
+    ['UPC_A', '12345'],
+    ['EAN13', 'ABCDEFGHIJKLM'],
+    ['EAN8', '123456'],
+    ['ITF', '123'],
+    ['CODE39', 'abc'],
+    ['CODABAR', '1234'],
+    ['CODE128', '{Z123'],
+  ] as const)('rejects invalid %s data', (type, data) => {
+    expect(() => new EscPosBuilder({ initialize: false }).barcode(data, type)).toThrow(RangeError);
+  });
 });
