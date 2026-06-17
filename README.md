@@ -58,10 +58,10 @@ const socket = createConnection(9100, '192.168.1.50', () => {
 
 ## Paper width and receipt layout
 
-Paper width is a physical property of the printer — ESC/POS has no command to set it. Tell the builder how many half-width characters fit on one line (`48` for 80 mm paper, `32` for 58 mm paper with Font A at 203 dpi — check your printer manual), and use the layout helpers:
+Paper width is a physical property of the printer — ESC/POS has no command to set it. Tell the builder how many half-width characters fit on one line (`48` for 80 mm paper, `35` for 58 mm paper with Font A at 203 dpi — check your printer manual), and use the layout helpers:
 
 ```ts
-const b = new EscPosBuilder({ encoding: 'japanese', width: 32 }); // 58 mm
+const b = new EscPosBuilder({ encoding: 'japanese', width: 35 }); // 58 mm
 
 b.rule()                       // --------------------------------
  .leftRight('りんご', '¥100')   // りんご                     ¥100
@@ -156,6 +156,42 @@ builder.image({ data: grayPixels, width: 384, height: 200 }, { threshold: 128 })
 
 To print PNG/JPEG files in Node.js, decode them first with a library such as [`sharp`](https://github.com/lovell/sharp) or [`jimp`](https://github.com/jimp-dev/jimp) and pass the raw pixels.
 
+### Minimising the blank gap at the top of the next receipt
+
+Thermal printers have a fixed physical distance between the print head and the cutter. After a cut, that distance becomes blank space at the very top of the next receipt. Printing a logo that spans the cut fills that gap: the portion above the cut finishes the current receipt, and the portion below sits between the cutter and the print head, so the next receipt starts printing immediately after it with no blank space.
+
+`.imageWithMidCut()` handles this in one call:
+
+```ts
+builder
+  .feed(3)
+  .imageWithMidCut(logo);
+```
+
+The split defaults to 50 % and is rounded to the nearest 8-pixel boundary. Adjust `ratio` to match the head-to-cutter distance of your printer:
+
+```ts
+builder.imageWithMidCut(logo, { ratio: 0.4 });
+builder.imageWithMidCut(logo, { ratio: 0.5, dither: 'floyd-steinberg' });
+```
+
+Images shorter than 16 rows are printed whole followed by a cut instead of being split.
+
+### Manual cropping
+
+For custom split logic, `splitImage(source, ratio?)` and `cropImage(source, top, height)` are available as standalone functions:
+
+```ts
+import { cropImage, splitImage } from 'escpos-builder-ts';
+
+// percentage-based split (aligned to 8 px, each half at least 8 rows)
+const [top, bottom] = splitImage(logo, 0.4);
+
+// or crop by exact row range
+const top = cropImage(logo, 0, 40);
+const bottom = cropImage(logo, 40, logo.height - 40);
+```
+
 ## Barcodes
 
 ```ts
@@ -165,6 +201,17 @@ builder.barcode('4901234567894', 'EAN13', {
   hriPosition: 'below', // 'none' | 'above' | 'below' | 'both'
   hriFont: 'a',
 });
+```
+
+## Paper cutting
+
+`.cut()` with no `feed` emits `GS V 0/1` — the paper is cut immediately without advancing. Passing a non-zero `feed` emits `GS V m n`, which feeds that many dots first:
+
+```ts
+builder.cut();              // full cut, no feed    → GS V 0
+builder.cut('partial');     // partial cut, no feed → GS V 1
+builder.cut('full', 64);    // feed 64 dots, then full cut
+builder.cut('partial', 64); // feed 64 dots, then partial cut
 ```
 
 ## Vendor-specific commands
@@ -213,12 +260,22 @@ new MyPrinterBuilder().textLine('Order ready').buzzer(3).cut().build();
 | `qrcode(data, opts?)` | `GS ( k` | QR code |
 | `barcode(data, type, opts?)` | `GS k` | Barcode |
 | `image(src, opts?)` | `GS v 0` | Raster image |
-| `cut(type?, feed?)` | `GS V` | Full / partial cut |
+| `imageWithMidCut(src, opts?)` | `GS v 0` + `GS V 0` | Print image spanning the cut to fill the blank gap at the top of the next receipt |
+| `cut(type?, feed?)` | `GS V 0/1` or `GS V m n` | Cut without feed (default) or feed `n` dots then cut |
 | `cashDrawer(pin?, on?, off?)` | `ESC p` | Drawer kick-out pulse |
 | `init()` | `ESC @` | Initialize printer |
 | `custom(bytes)` / `raw(bytes)` | — | Raw bytes |
 | `build()` | — | Get the result as `Uint8Array` |
 | `clear()` | — | Discard accumulated commands |
+
+Utility functions (imported directly, not builder methods):
+
+| Function | Description |
+| --- | --- |
+| `splitImage(source, ratio?)` | Split an `ImageSource` at `ratio` (default 0.5), returns `[top, bottom]` aligned to 8 px |
+| `cropImage(source, top, height)` | Slice rows `top` through `top + height − 1` from an `ImageSource` |
+| `toRaster(source, opts?)` | Convert an `ImageSource` to a 1-bpp `Raster` (used internally by `.image()`) |
+| `stringWidth(value, ambiguousAsWide?)` | Display width of a string in half-width cells |
 
 ## Browser usage
 

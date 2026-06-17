@@ -1,6 +1,6 @@
 import { ESC, FS, GS, HT, INIT, KANJI_OFF, KANJI_ON, LF } from './commands.js';
 import { resolveEncoding, type EncodingName } from './encodings.js';
-import { toRaster } from './image.js';
+import { splitImage, toRaster } from './image.js';
 import { charWidth, stringWidth } from './width.js';
 import type {
   Alignment,
@@ -47,6 +47,64 @@ function encodeAscii(value: string, what: string): Uint8Array {
       throw new RangeError(`${what} must contain only ASCII characters`);
     }
     bytes[i] = code;
+  }
+  return bytes;
+}
+
+function assertPattern(value: string, pattern: RegExp, what: string): void {
+  if (!pattern.test(value)) {
+    throw new RangeError(`${what} is not valid for this barcode type`);
+  }
+}
+
+function assertBarcodeData(data: string, type: BarcodeType): void {
+  switch (type) {
+    case 'UPC_A':
+      assertPattern(data, /^\d{11,12}$/, 'UPC_A data');
+      return;
+    case 'UPC_E':
+      assertPattern(data, /^(?:\d{6}|0\d{6,7}|0\d{10,11})$/, 'UPC_E data');
+      return;
+    case 'EAN13':
+      assertPattern(data, /^\d{12,13}$/, 'EAN13 data');
+      return;
+    case 'EAN8':
+      assertPattern(data, /^\d{7,8}$/, 'EAN8 data');
+      return;
+    case 'CODE39':
+      assertPattern(data, /^[0-9A-Z $%*+\-./]+$/, 'CODE39 data');
+      return;
+    case 'ITF':
+      assertPattern(data, /^\d{2,254}$/, 'ITF data');
+      if (data.length % 2 !== 0) {
+        throw new RangeError('ITF data length must be even');
+      }
+      return;
+    case 'CODABAR':
+      assertPattern(data, /^[A-Da-d][0-9A-Da-d$+\-./:]*[A-Da-d]$/, 'CODABAR data');
+      if (data.length < 2) {
+        throw new RangeError('CODABAR data length must be at least 2');
+      }
+      return;
+    case 'CODE93':
+      encodeAscii(data, 'CODE93 data');
+      if (data.length < 1 || data.length > 255) {
+        throw new RangeError(`CODE93 data length must be 1-255, got ${data.length}`);
+      }
+      return;
+    case 'CODE128':
+      return;
+  }
+}
+
+function encodeCode128(data: string): Uint8Array {
+  const content = data.startsWith('{') ? data : `{B${data.replaceAll('{', '{{')}`;
+  const bytes = encodeAscii(content, 'CODE128 data');
+  if (bytes.length < 2 || bytes.length > 255) {
+    throw new RangeError(`CODE128 data length must be 2-255, got ${bytes.length}`);
+  }
+  if (bytes[0] !== 0x7b || (bytes[1] !== 0x41 && bytes[1] !== 0x42 && bytes[1] !== 0x43)) {
+    throw new RangeError('CODE128 data must start with a code set selector: {A, {B, or {C');
   }
   return bytes;
 }
@@ -315,9 +373,9 @@ export class EscPosBuilder {
     assertRange(height, 1, 255, 'height');
     assertRange(width, 2, 6, 'width');
 
+    assertBarcodeData(data, type);
     // CODE128 requires a code-set selector; default to code set B.
-    const content = type === 'CODE128' && !data.startsWith('{') ? `{B${data}` : data;
-    const bytes = encodeAscii(content, 'barcode data');
+    const bytes = type === 'CODE128' ? encodeCode128(data) : encodeAscii(data, 'barcode data');
     assertRange(bytes.length, 1, 255, 'barcode data length');
 
     this.push([GS, 0x68, height]);
@@ -351,11 +409,35 @@ export class EscPosBuilder {
     return this;
   }
 
+  /**
+   * Print `source` spanning the cut position to fill the blank gap that
+   * thermal printers leave between the head and the cutter on the next receipt.
+   * `ratio` controls where the cut falls (0–1, default 0.5), rounded to the
+   * nearest multiple of 8 px. Images shorter than 16 rows are printed whole
+   * followed by a cut.
+   */
+  imageWithMidCut(source: ImageSource, options: ImageOptions & { ratio?: number } = {}): this {
+    const { ratio, ...imageOptions } = options;
+    if (source.height < 16) {
+      return this.image(source, imageOptions).cut();
+    }
+    const [top, bottom] = splitImage(source, ratio);
+    return this.image(top, imageOptions).cut().image(bottom, imageOptions);
+  }
+
   // --- Hardware ---
 
-  /** Feed to the cut position and cut the paper (GS V function B). */
+  /**
+   * Cut the paper.
+   * With no feed (default), emits `GS V 0/1` — cuts immediately without
+   * advancing the paper. With a non-zero feed, emits `GS V m n` to feed
+   * `n` dots before cutting.
+   */
   cut(type: CutType = 'full', feed = 0): this {
     assertRange(feed, 0, 255, 'feed');
+    if (feed === 0) {
+      return this.push([GS, 0x56, type === 'partial' ? 1 : 0]);
+    }
     return this.push([GS, 0x56, type === 'partial' ? 66 : 65, feed]);
   }
 

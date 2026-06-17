@@ -45,7 +45,9 @@ describe('EscPosBuilder', () => {
     ['feed 3', (b: EscPosBuilder) => b.feed(3), [0x1b, 0x64, 0x03]],
     ['newline', (b: EscPosBuilder) => b.newline(), [0x0a]],
     ['tab', (b: EscPosBuilder) => b.tab(), [0x09]],
-    ['full cut', (b: EscPosBuilder) => b.cut(), [0x1d, 0x56, 65, 0x00]],
+    ['full cut (no feed)', (b: EscPosBuilder) => b.cut(), [0x1d, 0x56, 0x00]],
+    ['partial cut (no feed)', (b: EscPosBuilder) => b.cut('partial'), [0x1d, 0x56, 0x01]],
+    ['full cut feed 3', (b: EscPosBuilder) => b.cut('full', 3), [0x1d, 0x56, 65, 0x03]],
     ['partial cut feed 3', (b: EscPosBuilder) => b.cut('partial', 3), [0x1d, 0x56, 66, 0x03]],
     ['cash drawer', (b: EscPosBuilder) => b.cashDrawer(), [0x1b, 0x70, 0x00, 50, 250]],
   ])('emits correct bytes for %s', (_name, apply, expected) => {
@@ -93,5 +95,24 @@ describe('barcode', () => {
     const bytes = new EscPosBuilder({ initialize: false }).barcode('Hi', 'CODE128').build();
     // ... GS k <CODE128> <len=4> '{' 'B' 'H' 'i'
     expect(Array.from(bytes.slice(-8))).toEqual([0x1d, 0x6b, 73, 4, 0x7b, 0x42, 0x48, 0x69]);
+  });
+
+  it('escapes literal CODE128 braces when adding the code set B selector', () => {
+    const bytes = new EscPosBuilder({ initialize: false }).barcode('A{B', 'CODE128').build();
+    expect(Array.from(bytes.slice(-10))).toEqual([
+      0x1d, 0x6b, 73, 6, 0x7b, 0x42, 0x41, 0x7b, 0x7b, 0x42,
+    ]);
+  });
+
+  it.each([
+    ['UPC_A', '12345'],
+    ['EAN13', 'ABCDEFGHIJKLM'],
+    ['EAN8', '123456'],
+    ['ITF', '123'],
+    ['CODE39', 'abc'],
+    ['CODABAR', '1234'],
+    ['CODE128', '{Z123'],
+  ] as const)('rejects invalid %s data', (type, data) => {
+    expect(() => new EscPosBuilder({ initialize: false }).barcode(data, type)).toThrow(RangeError);
   });
 });
